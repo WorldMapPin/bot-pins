@@ -1,0 +1,41 @@
+const config = {
+	email: {
+		transport: {
+			host: "your-ip-or-hostname",
+			port: 465,
+			secure: true,
+			auth: {
+				user: "your-username",
+				pass: "your-password"
+			},
+			tls: { rejectUnauthorized: false }
+		},
+		from: "[display-name]<username@domain.com>",
+		to: "display-name <username@domain.com>"
+	},
+	mssql: {
+		server: "vip.hivesql.io",
+		database: "DBHive",
+		user: "hivesql-account",
+		password: "hivesql-password",
+		requestTimeout: 60000,
+		options: {
+			encrypt: true, 
+			trustServerCertificate: true, 
+			enableArithAbort: true,
+		}
+	},
+	mysql: {
+		host: "your-ip-or-hostname",
+		database: "your-database",
+		user: "your-mysql-user",
+		password: "your-mysql-password",
+	},
+	account: "your-hive-account",
+	posting: "5...",
+	upvote_comments: false,
+	upvote_weight: 1,
+	interval: 15,
+}
+
+module.exports = config;
