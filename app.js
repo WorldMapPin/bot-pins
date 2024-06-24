@@ -79,7 +79,7 @@ async function makeComment(pa, pp) {
   const body =
     '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
     `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
-    `And every <b><a href="https://worldmappin.com?post=${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
+    `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
     '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
     '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
     '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
