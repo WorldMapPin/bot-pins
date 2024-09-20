@@ -154,7 +154,7 @@ async function service() {
         const project = code.split(" ",1)[0]
         const lat = code.split(project)[1].split("lat")[0];
         const long = code.split("lat")[1].split("long")[0];
-        const descr = code.split("long")[1].split("d3scr")[0].trim();
+        const descr = code.split("long")[1].split("d3scr")[0].trim().slice(0,150);
 
         const permlink = post.permlink;
         const author = post.author;
