@@ -1,5 +1,5 @@
 const fs = require('fs');
-const axios = require('axios')
+// const axios = require('axios')
 // const { assert } = require('console');
 const settings = require("./settings.js")
 
@@ -93,49 +93,6 @@ function update(file, data) {
 	fs.writeFileSync(file, JSON.stringify(data, null, "\t"))
 }
 
-async function makeComment(pa, pp) {
-  const now = new Date();
-  // const body =
-  //   '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
-  //   `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
-  //   `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
-  //   '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
-  //   '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
-  //   '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
-  //   '<a href="https://peakd.com/@worldmappin" target="_blank"><img src="https://worldmappin.com/notify.png?1"/></a>';
-
-  const body =
-  `<div class="text-justify">` +
-  `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br/><br>` +
-  `You can check out <b><a href="https://worldmappin.com/p/${pp}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile</a></b> on the map. ` +
-  `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
-  `</div>`
-
-  try {
-    const queryString = `
-      START TRANSACTION;
-      INSERT INTO notifications (parent_author, parent_permlink, body, json_metadata) 
-      VALUES (?, ?, ?, ?) ;
-      UPDATE markerinfo SET isCommented = 1 WHERE username = ? AND postPermLink = ?;
-      COMMIT;
-      `
-
-    await dbworldmappin.query(
-      queryString,
-      [
-        pa,
-        pp,
-        body,
-        "",
-        pa,
-        pp,
-      ]
-    )
-  } catch (err) {
-    console.error(err);
-  }
-}
-
 async function processPost(post) {
   const postdate = post.created.toString().replace("T", " ");
   const code = post.body.match(REGEX_PIN)[0];
@@ -209,48 +166,65 @@ async function processPost(post) {
     lat != undefined &&
     long != undefined
   ) {
-    // create or update
-    const queryString = `
-      INSERT INTO markerinfo (postLink, username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-      ON DUPLICATE KEY UPDATE postTitle = ?, longitude = ?, lattitude = ?, postDescription = ?, tags= ?, postUpvote= ?, postValue= ?, postImageLink= ?, postBody= ?
-      `
-    await dbworldmappin.query(
-      queryString,
-      [
-        postlink,
-        author,
-        // insert columns
-        posttitle,
-        long.toString(),
-        lat.toString(),
-        descr,
-        permlink,
-        postdate.toString(),
-        tags,
-        post.net_votes,//.toString(),
-        postvalue,
-        postimg.toString(),
-        post.body,
-        // update columns
-        posttitle,
-        long.toString(),
-        lat.toString(),
-        descr,
-        tags,
-        post.net_votes,//.toString(),
-        postvalue,
-        postimg.toString(),
-        post.body,
-      ])
+      // Check if post already pinned
+      const id = (await dbworldmappin.query(
+      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      [author, permlink]
+      ))[0]?.id
 
-    const isCommented = (await dbworldmappin.query(
-      "SELECT isCommented FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
-      [author.toString(), permlink.toString()]))[0].isCommented
-    if (isCommented == 0) {
-      log(`${postdate} - https://peakd.com/@${post.author}/${post.permlink}`)
-      await makeComment(author, permlink);
-    }
+      if (undefined==id) {
+        // new pin
+        log(`new post @${post.author}/${post.permlink}`)
+
+        // const notification =
+        //   '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
+        //   `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
+        //   `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
+        //   '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
+        //   '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
+        //   '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
+        //   '<a href="https://peakd.com/@worldmappin" target="_blank"><img src="https://worldmappin.com/notify.png?1"/></a>';
+
+        const notification =
+          `<div class="text-justify">` +
+          `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br/><br>` +
+          `You can check out <b><a href="https://worldmappin.com/p/${post.permlink}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${post.author}" target="_blank">your own profile</a></b> on the map. ` +
+          `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
+          `</div>`
+      
+        await dbworldmappin.query(
+          `
+          START TRANSACTION;
+
+          INSERT INTO markerinfo (postLink, username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody, isCommented) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+
+          INSERT INTO notifications (parent_author, parent_permlink, body, json_metadata) 
+          VALUES (?, ?, ?, ?);
+
+          COMMIT;
+          `,
+          [
+            // pin
+            postlink, author, posttitle, long, lat, descr, permlink, postdate, tags, post.net_votes, postvalue, postimg, post.body,
+            // notification
+            author, permlink, notification, "",
+          ]
+        )
+      } else {
+        logdebug(`update post @${post.author}/${post.permlink}`)
+        await dbworldmappin.query(
+          `
+            UPDATE markerinfo 
+            SET postTitle = ?, longitude = ?, lattitude = ?, postDescription = ?, tags= ?, postUpvote= ?, postValue= ?, postImageLink= ?, postBody= ?
+            WHERE id = ?
+          `,
+          [ 
+            posttitle, long, lat, descr, tags, post.net_votes, postvalue, postimg, post.body,
+            id
+          ]
+        )
+      }
   } else {
     // automatically delete spam (downvoted to 0)
     await dbworldmappin.query(
@@ -286,7 +260,7 @@ async function processOp(op) {
       case "comment":
         if(params.parent_author!="") return; // ignore comments
 
-        logdebug(`process post ${params.author} - ${params.permlink}`)
+        // logdebug(`process post ${params.author} - ${params.permlink}`)
         let post = undefined
 
         if(params.body.startsWith("@@")) {
@@ -312,12 +286,13 @@ async function processOp(op) {
         break;
 
       case "vote":
-          logdebug(`vote ${params.author} - ${params.permlink}`)
+          // logdebug(`vote ${params.author} - ${params.permlink}`)
           await processVote(params.author, params.permlink)
           break;
-      }      
+      }
 	} catch(e) {
 		logerror(`processOp failed: ${e.message}`, JSON.stringify(op))
+    throw e
 	}
 }
 
@@ -348,9 +323,9 @@ async function serviceNotifications() {
           permlink: notification.parent_permlink,
           weight: settings.upvote_weight * 100
         }  
-      
+
         const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
-        logdebug(`Transaction ID: ${id}`);
+        log(`Notification sent to @notification.parent_author (${id})`);
         await dbworldmappin.query("DELETE FROM notifications WHERE id = ?",[notification.id]);
         if(settings.upvote_comments) {
           await hiveClient.broadcast.vote(opVote, postingKey)
@@ -419,8 +394,8 @@ async function service() {
 }
 
 async function test() {
-    await service()
-    //await serviceNotifications()
+    //await service()
+    await serviceNotifications()
 }
 
 (async () => {
