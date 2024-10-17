@@ -3,4 +3,5 @@
 
 # Files
 settings.js
+state.json
 ecosystem.config.js
