@@ -82,6 +82,14 @@ function toAsset(str) {
   return new Asset(str)
 }
 
+function getPostValue(post) {
+  let value = toAsset(post.pending_payout_value).value;
+  if (value == 0) {
+    value = toAsset(post.total_payout_value).value + toAsset(post.curator_payout_value).value;
+  }
+  return value
+}
+
 async function processPost(post) {
   const postdate = post.created.toString().replace("T", " ");
   const code = post.body.match(REGEX_PIN)[0];
@@ -135,11 +143,7 @@ async function processPost(post) {
     }
   }
 
-  let postvalue = toAsset(post.pending_payout_value).value;
-  if (postvalue == 0) {
-    postvalue = toAsset(post.total_payout_value).value + toAsset(post.curator_payout_value).value;
-  }
-  postvalue = postvalue.toFixed(3);
+  const postvalue = getPostValue(post)
   const tags = json_metadata.tags.toString().replaceAll(",",", ")
 
   if (
@@ -217,15 +221,18 @@ async function processPost(post) {
   }  
 }
 
-async function processVote(author, permlink) {
+async function processVote(author, permlink, weight) {
   try {
-    const res = (await dbworldmappin.query(
-      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? AND postValue < 0.02 LIMIT 1",
-      [author.toString(), permlink.toString()]))
-    
-    if (res.length) {
+    const reward = (await dbworldmappin.query(
+      "SELECT postValue FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      [author.toString(), permlink.toString()]))[0]?.postValue
+
+    if (reward!=undefined && (reward < 0.02 || weight < 0)) {
       const post = await hiveClient.call("condenser_api","get_content",[author, permlink])
-      await processPost(post)
+      await dbworldmappin.query(
+        "UPDATE markerinfo SET postUpvote = ?, postValue = ? WHERE username = ? AND postPermLink = ?",
+        [ post.net_votes, getPostValue(post), author, permlink]
+      )
     }
   } catch (e) {
 		logerror(`processVote failed: ${e.message}`, e.stack)
@@ -270,7 +277,7 @@ async function processOp(op) {
 
       case "vote":
           // logdebug(`vote ${params.author} - ${params.permlink}`)
-          await processVote(params.author, params.permlink)
+          await processVote(params.author, params.permlink, params.weight)
           break;
       }
 	} catch(e) {
