@@ -1,6 +1,3 @@
-const fs = require('fs');
-// const axios = require('axios')
-// const { assert } = require('console');
 const settings = require("./settings.js")
 
 const { Asset } = require("./asset.js")
@@ -16,10 +13,6 @@ const smtp = nodemailer.createTransport({
   secure: false,
   ignoreTLS: true
 })
-
-// Service data
-const FILE_STATE = "state.json"
-const state = JSON.parse(fs.readFileSync(FILE_STATE))
 
 // Initialize global variables
 const bDebug = process.env.DEBUG==="true"
@@ -89,10 +82,6 @@ function toAsset(str) {
   return new Asset(str)
 }
 
-function update(file, data) {
-	fs.writeFileSync(file, JSON.stringify(data, null, "\t"))
-}
-
 async function processPost(post) {
   const postdate = post.created.toString().replace("T", " ");
   const code = post.body.match(REGEX_PIN)[0];
@@ -107,7 +96,7 @@ async function processPost(post) {
   const posttitle = post.title;
   const json_metadata = JSON.parse(post.json_metadata);
 
-  let postimg;
+  let postimg = "No image";;
 
   if (
     json_metadata != undefined &&
@@ -128,37 +117,31 @@ async function processPost(post) {
       ) {
         postimg = json_metadata.image[0];
       } else {
-        let imgreg = /src=['"]+.*?['"]+/g;
+        const imgreg = /src=['"]+.*?['"]+/g;
         if (post.body.match(imgreg)) {
           postimg = post.body.match(imgreg)[0];
-        } else {
-          postimg = "No image";
         }
       }
     } else {
-      let imgreg = /src=['"]+.*?['"]+/g;
+      const imgreg = /src=['"]+.*?['"]+/g;
       if (post.body.match(imgreg)) {
         postimg = post.body.match(imgreg)[0];
-      } else {
-        postimg = "No image";
       }
     }
   } else {
-    let imgreg = /src=['"]+.*?['"]+/g;
+    const imgreg = /src=['"]+.*?['"]+/g;
     if (post.body.match(imgreg)) {
       postimg = post.body.match(imgreg)[0];
-    } else {
-      postimg = "No image";
     }
   }
 
-  // let postupvote = post.net_votes;
   let postvalue = toAsset(post.pending_payout_value).value;
   if (postvalue == 0) {
     postvalue = toAsset(post.total_payout_value).value + toAsset(post.curator_payout_value).value;
   }
   postvalue = postvalue.toFixed(3);
   const tags = json_metadata.tags.toString().replaceAll(",",", ")
+
   if (
     // postvalue > 0.02 &&
     lat != 0 &&
@@ -237,7 +220,7 @@ async function processPost(post) {
 async function processVote(author, permlink) {
   try {
     const res = (await dbworldmappin.query(
-      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? AND postValue < 0.02 LIMIT 1",
       [author.toString(), permlink.toString()]))
     
     if (res.length) {
@@ -324,8 +307,16 @@ async function serviceNotifications() {
           weight: settings.upvote_weight * 100
         }  
 
-        const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
-        log(`Notification sent to @notification.parent_author (${id})`);
+        try {
+          const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
+          log(`Notification sent to @${notification.parent_author} (${id})`);
+        } catch(e) {
+          if (e.message.includes("not found")) {
+            await dbworldmappin.query("DELETE FROM markerinfo WHERE username = ? AND postPermlink = ?",[notification.parent_author, notification.parent_permlink]);
+          } else {
+            throw e
+          }
+        }
         await dbworldmappin.query("DELETE FROM notifications WHERE id = ?",[notification.id]);
         if(settings.upvote_comments) {
           await hiveClient.broadcast.vote(opVote, postingKey)
@@ -334,7 +325,7 @@ async function serviceNotifications() {
       }
     }
   } catch (e) {
-		logerror(`serviceNotifications failed: ${e.message}`, e.stack)
+    logerror(`serviceNotifications failed: ${e.message}`, e.stack)
   } finally {
     bBusyNotifications = false    
   }
@@ -348,7 +339,9 @@ async function service() {
   try {
     bBusy = true
 
-    const state = JSON.parse(fs.readFileSync(FILE_STATE))
+    const last_block = (await dbworldmappin.query("SELECT last_block FROM  params LIMIT 1"))[0].last_block
+    const state = { last_block: last_block, last_block_tx: 0, last_block_tx_op: 0 }
+
 		// Process blocks
 		for await (const block of hiveClient.blockchain.getBlocks(state.last_block)) {
 			if (bDebug) {
@@ -370,17 +363,15 @@ async function service() {
 					}
 					// op processed
 					state.last_block_tx_op += 1
-					update(FILE_STATE,state)
 				}
 				// tx processed
 				state.last_block_tx_op = 0
 				state.last_block_tx += 1
-				update(FILE_STATE,state)
 			}
 			// block processed
 			state.last_block_tx = 0
 			state.last_block += 1
-			update(FILE_STATE,state)
+      await dbworldmappin.query(`UPDATE params SET last_block = ?`,[state.last_block])
 		}
   } catch (e) {
     if(e.message.toLowerCase().includes("database lock")) {
@@ -395,7 +386,12 @@ async function service() {
 
 async function test() {
     //await service()
-    await serviceNotifications()
+    // await serviceNotifications()
+
+    service()
+    setInterval(service, settings.interval * 1000)
+    serviceNotifications()
+    setInterval(serviceNotifications, settings.interval * 1000)
 }
 
 (async () => {
