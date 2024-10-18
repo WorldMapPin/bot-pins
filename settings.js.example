@@ -1,7 +1,7 @@
 const config = {
 	email: {
 		transport: {
-			host: "your-ip-or-hostname",
+			host: "your-server-ip-or-hostname",
 			port: 465,
 			secure: true,
 			auth: {
@@ -16,8 +16,8 @@ const config = {
 	mssql: {
 		server: "vip.hivesql.io",
 		database: "DBHive",
-		user: "hivesql-account",
-		password: "hivesql-password",
+		user: "your-hivesql-account",
+		password: "your-hivesql-password",
 		requestTimeout: 60000,
 		options: {
 			encrypt: true, 
@@ -31,6 +31,7 @@ const config = {
 		user: "your-mysql-user",
 		password: "your-mysql-password",
 	},
+	hive_api: "https://api.hive.blog",
 	account: "your-hive-account",
 	posting: "5...",
 	upvote_comments: false,
