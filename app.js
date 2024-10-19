@@ -147,7 +147,6 @@ async function processPost(post) {
   const tags = json_metadata.tags.toString().replaceAll(",",", ")
 
   if (
-    // postvalue > 0.02 &&
     lat != 0 &&
     long != 0 &&
     lat != undefined &&
@@ -213,7 +212,6 @@ async function processPost(post) {
         )
       }
   } else {
-    // automatically delete spam (downvoted to 0)
     await dbworldmappin.query(
       "DELETE FROM markerinfo WHERE username = ? AND postPermlink = ?",
       [post.author, post.permlink]
