@@ -1,6 +1,17 @@
+<<<<<<< HEAD
 # Folders
 /node_modules
 
 # Files
 settings.js
+state.json
 ecosystem.config.js
+=======
+# Folders
+/node_modules
+
+# Files
+settings.js
+state.json
+ecosystem.config.js
+>>>>>>> ace8065a9ba1e98223d15a011d639a087c4a2930

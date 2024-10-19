@@ -1,23 +1,21 @@
 const settings = require("./settings.js")
 
-const { Client, DatabaseAPI, PrivateKey } = require('@hiveio/dhive')
-const hiveClient = new Client(['https://api.hive.blog']);
+const { Asset } = require("./asset.js")
+const { Client, PrivateKey } = require('@hiveio/dhive')
+const hiveClient = new Client(settings.hive_api);
 
-const nodemailer = require("nodemailer")
+// Initialize nodemailer
+const nodemailer = require("nodemailer");
 const email = settings.email;
 const smtp = nodemailer.createTransport({
-  host: settings.email.smtp,
-  port: settings.email.port,
+  host: email.smtp,
+  port: email.port,
   secure: false,
   ignoreTLS: true
 })
 
-const mssql = require("mssql")
-
-const dbworldmappin = require("./dbworldmappin");
-
-const bDebug = (process.env.DEBUG==="true")
-
+// Initialize global variables
+const bDebug = process.env.DEBUG==="true"
 const msSecond = 1 * 1000
 const msMinute = 60 * msSecond
 const msHour = 60 * msMinute
@@ -26,13 +24,19 @@ const second = 1
 const minute = 60 * second
 const hour = 60 * minute
 
+const dbworldmappin = require("./dbworldmappin");
+const REGEX_PIN = /(!worldmappin|!pinmapple) -*[0-9]+\.*[0-9]* lat -*[0-9]+\.*[0-9]* long.*?d3scr/g;
 const postingKey = PrivateKey.fromString(settings.posting);
+
+let bBusy = false
+let bBusyNotifications = false
+let bFirstBlock = true
 
 async function wait(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
 }
 
-async function notify(subject,body="") {
+async function notify(subject, body="") {
   try {
     const info = await smtp.sendMail({
       from: email.from,
@@ -41,8 +45,7 @@ async function notify(subject,body="") {
       text: body,
       html: body
     })
-  }
-  catch(e) {
+  } catch(e) {
     logerror(e)
   }
 }
@@ -59,238 +62,360 @@ function skipNotify(message) {
 }
 
 function log(message) {
-  console.log(`${datetoISO(new Date())} - ${message}`);
+  console.log(`${datetoISO(new Date())}- ${message}`)
 }
 
-function logerror(message, info="") {
-  console.error(`${datetoISO(new Date())} - ${message}`);
-
-  if(!bDebug && !skipNotify(message)) {
-    notify(`[hive-worldmappin] ${message}`, info)
+function logerror(message, body="") {
+  console.error(`${datetoISO(new Date())}- ${message}${body!="" ? " -> ":""}${body}`)
+  if(settings.notify?.error  && !skipNotify(message)) {
+    notify(`[hive-worldmappin] ${message}`, body)
   }
 }
 
 function logdebug(message) {
-  if(bDebug) console.log(`${datetoISO(new Date())} - ${message}`);
+  if(bDebug || settings.debug) {
+    console.log(`${datetoISO(new Date())}- ${message}`)
+  }
 }
 
-async function makeComment(pa, pp) {
-  const now = new Date();
-  const body =
-    '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
-    `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
-    `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
-    '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
-    '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
-    '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
-    '<a href="https://peakd.com/@worldmappin" target="_blank"><img src="https://worldmappin.com/notify.png?1"/></a>';
-  
-  const opComment = {
-    author: settings.account,
-    permlink: "wmp" + now.getTime().toString(),
-    title: "",
-    body: body,
-    parent_author: pa,
-    parent_permlink: pp,
-    json_metadata: "",
+function toAsset(str) {
+  return new Asset(str)
+}
+
+function getPostValue(post) {
+  let value = toAsset(post.pending_payout_value).value;
+  if (value == 0) {
+    value = toAsset(post.total_payout_value).value + toAsset(post.curator_payout_value).value;
   }
-  const opVote = {
-    voter: settings.account,
-    author: pa,
-    permlink: pp,
-    weight: settings.upvote_weight * 100
-  }  
+  return value
+}
 
-  try {
-    const ops = []
-    ops.push(opComment)
-    const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
-    console.log(`Transaction ID: ${id}`);
-    await dbworldmappin.query(
-      "UPDATE markerinfo SET isCommented = 1 WHERE username = ? AND postPermLink = ?",
-      [pa.toString(), pp.toString()]
-    )
+async function processPost(post) {
+  const postdate = post.created.toString().replace("T", " ");
+  const code = post.body.match(REGEX_PIN)[0];
+  const project = code.split(" ",1)[0]
+  const lat = code.split(project)[1].split("lat")[0];
+  const long = code.split("lat")[1].split("long")[0];
+  const descr = code.split("long")[1].split("d3scr")[0].trim().slice(0,150);
 
-    if(settings.upvote_comments) {
-      await hiveClient.broadcast.vote(opVote, postingKey)
+  const permlink = post.permlink;
+  const author = post.author;
+  const postlink = "https://peakd.com" + post.url;
+  const posttitle = post.title;
+  const json_metadata = JSON.parse(post.json_metadata);
+
+  let postimg = "No image";;
+
+  if (
+    json_metadata != undefined &&
+    json_metadata != null &&
+    json_metadata != "" &&
+    json_metadata != []
+  ) {
+    if (
+      json_metadata.image != undefined &&
+      json_metadata.image != null &&
+      json_metadata.image != "" &&
+      json_metadata.image != []
+    ) {
+      if (
+        json_metadata.image[0] != undefined &&
+        json_metadata.image[0] != null &&
+        json_metadata.image[0] != ""
+      ) {
+        postimg = json_metadata.image[0];
+      } else {
+        const imgreg = /src=['"]+.*?['"]+/g;
+        if (post.body.match(imgreg)) {
+          postimg = post.body.match(imgreg)[0];
+        }
+      }
+    } else {
+      const imgreg = /src=['"]+.*?['"]+/g;
+      if (post.body.match(imgreg)) {
+        postimg = post.body.match(imgreg)[0];
+      }
     }
+  } else {
+    const imgreg = /src=['"]+.*?['"]+/g;
+    if (post.body.match(imgreg)) {
+      postimg = post.body.match(imgreg)[0];
+    }
+  }
 
-  } catch (err) {
-    console.error(err);
+  const postvalue = getPostValue(post)
+  const tags = json_metadata.tags.toString().replaceAll(",",", ")
+
+  if (
+    lat != 0 &&
+    long != 0 &&
+    lat != undefined &&
+    long != undefined
+  ) {
+      // Check if post already pinned
+      const id = (await dbworldmappin.query(
+      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      [author, permlink]
+      ))[0]?.id
+
+      if (undefined==id) {
+        // new pin
+        log(`new post @${post.author}/${post.permlink}`)
+
+        // const notification =
+        //   '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
+        //   `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
+        //   `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
+        //   '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
+        //   '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
+        //   '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
+        //   '<a href="https://peakd.com/@worldmappin" target="_blank"><img src="https://worldmappin.com/notify.png?1"/></a>';
+
+        const notification =
+          `<div class="text-justify">` +
+          `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br/><br>` +
+          `You can check out <b><a href="https://worldmappin.com/p/${post.permlink}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${post.author}" target="_blank">your own profile</a></b> on the map. ` +
+          `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
+          `</div>`
+      
+        await dbworldmappin.query(
+          `
+          START TRANSACTION;
+
+          INSERT INTO markerinfo (postLink, username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody, isCommented) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+
+          INSERT INTO notifications (parent_author, parent_permlink, body, json_metadata) 
+          VALUES (?, ?, ?, ?);
+
+          COMMIT;
+          `,
+          [
+            // pin
+            postlink, author, posttitle, long, lat, descr, permlink, postdate, tags, post.net_votes, postvalue, postimg, post.body,
+            // notification
+            author, permlink, notification, "",
+          ]
+        )
+      } else {
+        logdebug(`update post @${post.author}/${post.permlink}`)
+        await dbworldmappin.query(
+          `
+            UPDATE markerinfo 
+            SET postTitle = ?, longitude = ?, lattitude = ?, postDescription = ?, tags= ?, postUpvote= ?, postValue= ?, postImageLink= ?, postBody= ?
+            WHERE id = ?
+          `,
+          [ 
+            posttitle, long, lat, descr, tags, post.net_votes, postvalue, postimg, post.body,
+            id
+          ]
+        )
+      }
+  } else {
+    await dbworldmappin.query(
+      "DELETE FROM markerinfo WHERE username = ? AND postPermlink = ?",
+      [post.author, post.permlink]
+    );
+  }  
+}
+
+async function processVote(author, permlink, weight) {
+  try {
+    const reward = (await dbworldmappin.query(
+      "SELECT postValue FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      [author.toString(), permlink.toString()]))[0]?.postValue
+
+    if (reward!=undefined && (reward < 0.02 || weight < 0)) {
+      const post = await hiveClient.call("condenser_api","get_content",[author, permlink])
+      await dbworldmappin.query(
+        "UPDATE markerinfo SET postUpvote = ?, postValue = ? WHERE username = ? AND postPermLink = ?",
+        [ post.net_votes, getPostValue(post), author, permlink]
+      )
+    }
+  } catch (e) {
+		logerror(`processVote failed: ${e.message}`, e.stack)
+  }
+}
+
+async function checkUnpinPost(author, permlink) {
+
+}
+
+async function processOp(op) {
+  try {
+    const params = op[1]
+    switch(op[0]) {
+      case "comment":
+        if(params.parent_author!="") return; // ignore comments
+
+        // logdebug(`process post ${params.author} - ${params.permlink}`)
+        let post = undefined
+
+        if(params.body.startsWith("@@")) {
+          // existing comment update - retrieve full body from the blockchain
+          post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
+          params.body = post.body
+        }
+        if (params.body.match(REGEX_PIN)) {
+          // load post if not yet loaded
+          if(undefined == post) {
+            post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
+          }
+          await processPost(post)
+        } else {
+          // Check if post already pinned and need unpin
+          await checkUnpinPost(params.author, params.permlink)
+        }
+        break;
+
+      case "delete_comment":
+        logdebug(`delete post ${params.author} - ${params.permlink}`)
+        await checkUnpinPost(params.author, params.permlink)
+        break;
+
+      case "vote":
+          // logdebug(`vote ${params.author} - ${params.permlink}`)
+          await processVote(params.author, params.permlink, params.weight)
+          break;
+      }
+	} catch(e) {
+		logerror(`processOp failed: ${e.message}`, JSON.stringify(op))
+    throw e
+	}
+}
+
+async function serviceNotifications() {
+  if(bBusyNotifications) {
+		// service is already running
+		return
+	}
+  try {
+    bBusyNotifications = true
+    const notifications = (await dbworldmappin.query("SELECT * FROM notifications"))
+    
+    if (notifications.length) {
+      for (const notification of notifications) {
+        const now = new Date();
+        const opComment = {
+          author: settings.account,
+          permlink: "wmp" + now.getTime().toString(),
+          title: "",
+          body: notification.body,
+          parent_author: notification.parent_author,
+          parent_permlink: notification.parent_permlink,
+          json_metadata: notification.json_metadata,
+        }
+        const opVote = {
+          voter: settings.account,
+          author: notification.parent_author,
+          permlink: notification.parent_permlink,
+          weight: settings.upvote_weight * 100
+        }  
+
+        try {
+          const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
+          log(`Notification sent to @${notification.parent_author} (${id})`);
+        } catch(e) {
+          if (e.message.includes("not found")) {
+            await dbworldmappin.query("DELETE FROM markerinfo WHERE username = ? AND postPermlink = ?",[notification.parent_author, notification.parent_permlink]);
+          } else {
+            throw e
+          }
+        }
+        await dbworldmappin.query("DELETE FROM notifications WHERE id = ?",[notification.id]);
+        if(settings.upvote_comments) {
+          await hiveClient.broadcast.vote(opVote, postingKey)
+        }
+        await wait(3 * msSecond);
+      }
+    }
+  } catch (e) {
+    logerror(`serviceNotifications failed: ${e.message}`, e.stack)
+  } finally {
+    bBusyNotifications = false    
   }
 }
 
 async function service() {
+  if(bBusy) {
+		// service is already running
+		return
+	}
   try {
-    const pool = await mssql.connect(settings.mssql);
-    const res = await pool
-      .request()
-      .query(`
-        SELECT
-          id, curator_payout_value, total_payout_value, total_pending_payout_value, pending_payout_value, author_rewards, json_metadata, title, net_votes, permlink, parent_permlink, author, created, url, body
-        FROM
-          Comments
-        WHERE 
-          depth = 0 
-          AND title != ''
-          AND (CONTAINS(body, '"!worldmappin"') OR CONTAINS(body,'"!pinmapple"'))
-          AND CONTAINS(body, 'd3scr')
-          AND created > GETUTCDATE()-7
-        ORDER BY
-          created
-        `);
-    const posts = res.recordsets[0];
-    log(`Processing ${posts.length} posts`)
+    bBusy = true
 
-    // const reg = /!worldmappin -*[0-9]+\.*[0-9]* lat -*[0-9]+\.*[0-9]* long.*?d3scr/g;
-    const reg = /(!worldmappin|!pinmapple) -*[0-9]+\.*[0-9]* lat -*[0-9]+\.*[0-9]* long.*?d3scr/g;
-    for (const post of posts) {
-      let postdate = post.created.toISOString().slice(0, 19).replace("T", " ");
+    const last_block = (await dbworldmappin.query("SELECT last_block FROM  params LIMIT 1"))[0].last_block
+    const state = { last_block: last_block, last_block_tx: 0, last_block_tx_op: 0 }
 
-      logdebug(`${postdate} - https://peakd.com/@${post.author}/${post.permlink}`)
-
-      if (post.body.match(reg)) {
-        const code = post.body.match(reg)[0];
-        const project = code.split(" ",1)[0]
-        const lat = code.split(project)[1].split("lat")[0];
-        const long = code.split("lat")[1].split("long")[0];
-        const descr = code.split("long")[1].split("d3scr")[0].trim().slice(0,150);
-
-        const permlink = post.permlink;
-        const author = post.author;
-        const postlink = "https://peakd.com" + post.url;
-        const posttitle = post.title;
-        const json_metadata = JSON.parse(post.json_metadata);
-        let postimg;
-
-        if (
-          json_metadata != undefined &&
-          json_metadata != null &&
-          json_metadata != "" &&
-          json_metadata != []
-        ) {
-          if (
-            json_metadata.image != undefined &&
-            json_metadata.image != null &&
-            json_metadata.image != "" &&
-            json_metadata.image != []
-          ) {
-            if (
-              json_metadata.image[0] != undefined &&
-              json_metadata.image[0] != null &&
-              json_metadata.image[0] != ""
-            ) {
-              postimg = json_metadata.image[0];
-            } else {
-              let imgreg = /src=['"]+.*?['"]+/g;
-              if (post.body.match(imgreg)) {
-                postimg = post.body.match(imgreg)[0];
-              } else {
-                postimg = "No image";
-              }
-            }
-          } else {
-            let imgreg = /src=['"]+.*?['"]+/g;
-            if (post.body.match(imgreg)) {
-              postimg = post.body.match(imgreg)[0];
-            } else {
-              postimg = "No image";
-            }
-          }
-        } else {
-          let imgreg = /src=['"]+.*?['"]+/g;
-          if (post.body.match(imgreg)) {
-            postimg = post.body.match(imgreg)[0];
-          } else {
-            postimg = "No image";
-          }
-        }
-
-        let postupvote = post.net_votes;
-        let postvalue = post.pending_payout_value;
-        if (postvalue == 0) {
-          postvalue = post.total_payout_value + post.curator_payout_value;
-        }
-        postvalue = postvalue.toFixed(3);
-        let tags = (await pool
-          .request()
-          .query(`SELECT tag FROM Tags WHERE comment_id = ${post.id}`)
-          ).recordsets[0].map(o => o.tag).toString().replaceAll(",",", ")
-
-        let postbody = post.body;
-        if (
-          postvalue > 0.02 &&
-          lat != 0 &&
-          long != 0 &&
-          lat != undefined &&
-          long != undefined
-        ) {
-          // create or update
-          const queryString = `
-            INSERT INTO markerinfo (postLink, username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-            ON DUPLICATE KEY UPDATE postTitle = ?, longitude = ?, lattitude = ?, postDescription = ?, tags= ?, postUpvote= ?, postValue= ?, postImageLink= ?, postBody= ?
-            `
-          await dbworldmappin.query(
-            queryString,
-            [
-              postlink.toString(),
-              author.toString(),
-              posttitle.toString(),
-              long.toString(),
-              lat.toString(),
-              descr.toString(),
-              permlink.toString(),
-              postdate.toString(),
-              tags.toString(),
-              postupvote.toString(),
-              postvalue.toString(),
-              postimg.toString(),
-              postbody.toString(),
-              posttitle.toString(),
-              long.toString(),
-              lat.toString(),
-              descr.toString(),
-              tags.toString(),
-              postupvote.toString(),
-              postvalue.toString(),
-              postimg.toString(),
-              postbody.toString(),
-            ])
-
-          const isCommented = (await dbworldmappin.query(
-            "SELECT isCommented FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
-            [author.toString(), permlink.toString()]))[0].isCommented
-          if (isCommented == 0) {
-            log(`${postdate} - https://peakd.com/@${post.author}/${post.permlink}`)
-            await makeComment(author, permlink);
-            await wait(3 * msSecond);
-          }
-        } else {
-          // automatically delete spam (downvoted to 0)
-          await dbworldmappin.query(
-            "DELETE FROM markerinfo WHERE postLink = ?",
-            [postlink.toString()]
-          );
-        }
-      }
-    }
+		// Process blocks
+		for await (const block of hiveClient.blockchain.getBlocks(state.last_block)) {
+			if (bDebug) {
+				logdebug(`block: ${state.last_block} (${block.timestamp}) txs: ${block.transactions.length}`)
+			} else if(bFirstBlock || state.last_block % 100 == 0) {
+				log(`processing block ${state.last_block} (${block.timestamp})`)
+			}
+			bFirstBlock = false
+			// Process txs
+			for(let itx=state.last_block_tx; itx < block.transactions.length; itx++) {
+				const tx = block.transactions[itx]
+				// console.debug(`\ttx: ${tx.transaction_num} - ops: ${tx.operations.length}`)
+				// Process ops
+				for(let iop=state.last_block_tx_op; iop < tx.operations.length; iop++) {
+					const op = tx.operations[iop]
+					//console.debug(`\t\top: ${state.last_block_tx_op} ${JSON.stringify(op)}`)
+					if(["comment","delete_comment","vote"].includes(op[0])) {
+						await processOp(op)
+					}
+					// op processed
+					state.last_block_tx_op += 1
+				}
+				// tx processed
+				state.last_block_tx_op = 0
+				state.last_block_tx += 1
+			}
+			// block processed
+			state.last_block_tx = 0
+			state.last_block += 1
+      await dbworldmappin.query(`UPDATE params SET last_block = ?`,[state.last_block])
+		}
   } catch (e) {
-    logerror(e.message);
+    if(e.message.toLowerCase().includes("database lock")) {
+      log(e.message)
+    } else {
+      logerror(e.message)
+    }
+  } finally {
+    bBusy = false
   }
 }
 
-
-(async () => {
-  if(bDebug) {
-    log("Debug Started ")
-    await service()
-    log("Done")
-  } else {
-    log("Service Started ")
-    log(`Interval: ${settings.interval.toString()} minutes(s)`)
+async function test() {
+    //await service()
+    // await serviceNotifications()
 
     service()
-    setInterval(service, settings.interval * msMinute)
+    setInterval(service, settings.interval * 1000)
+    serviceNotifications()
+    setInterval(serviceNotifications, settings.interval * 1000)
+}
+
+(async () => {
+  try {
+    if(bDebug) {
+      log("Debug started")
+      log(`API: ${settings.hive_api}`)
+      await test()
+    } else {
+      log("Service started")
+      log(`Debug: ${settings.debug ? "active":"inactive"}`)
+      log(`Interval: ${settings.interval.toString()} seconds`)
+      log(`API: ${settings.hive_api}`)
+      service()
+      setInterval(service, settings.interval * 1000)
+      serviceNotifications()
+      setInterval(serviceNotifications, settings.interval * 1000)
+    }
+  } catch(e) {
+    console.error(e)
   }
 })();
