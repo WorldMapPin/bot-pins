@@ -1,5 +1,7 @@
-const settings = require("./settings.js")
+const axios = require('axios');
+const fs = require('fs');
 
+const settings = require("./settings.js")
 const { Asset } = require("./asset.js")
 const { Client, PrivateKey } = require('@hiveio/dhive')
 const hiveClient = new Client(settings.hive_api);
@@ -90,6 +92,70 @@ function getPostValue(post) {
   return value
 }
 
+async function createMap(lat, long, filename) {
+  const apiKey = settings.google_maps_api_key;
+  const apiUrl = 'https://maps.googleapis.com/maps/api/staticmap';
+
+  const zoom = '5';                                  // Zoom level (0-20)
+  const size = '600x200';                            // Image size in pixels (max 640x640 for free accounts)
+  const center = `${lat}, ${long}`;                  // Latitude and longitude of the map's center
+  const iconUrl = 'https://i.imgur.com/xv1Gr1d.png'  // 48x48
+  const markers = `icon:${iconUrl}|${lat}, ${long}`; // Marker parameters
+
+  // const params = {
+  //   center: center,
+  //   zoom: zoom,
+  //   size: size,
+  //   markers: markers,
+  //   style: "feature:road|visibility:simplified|feature:administrative.country|visibility:simplified|feature:administrative.locality|element:labels|visibility:off",
+  //   key: apiKey
+  // };
+
+  const url = 
+  `${apiUrl}?key=${apiKey}&center=${center}&markers=${markers}&zoom=${zoom}&size=${size}`+
+  `&style=element:geometry%7Ccolor:0xf5f5f5`+
+  `&style=element:labels%7Cvisibility:off`+
+  `&style=element:labels.icon%7Cvisibility:off`+
+  `&style=element:labels.text.fill%7Ccolor:0x616161`+
+  `&style=element:labels.text.stroke%7Ccolor:0xf5f5f5`+
+  `&style=feature:administrative%7Celement:geometry%7Cvisibility:off`+
+  `&style=feature:administrative.country%7Celement:labels.text%7Ccolor:0xffae3d%7Cvisibility:simplified%7Cweight:1`+
+  `&style=feature:administrative.locality%7Ccolor:0xc7c4bd%7Cvisibility:simplified`+
+  `&style=feature:administrative.land_parcel%7Celement:labels.text.fill%7Ccolor:0xbdbdbd`+
+  `&style=feature:administrative.neighborhood%7Cvisibility:off`+
+  `&style=feature:poi%7Cvisibility:off`+
+  `&style=feature:poi%7Celement:geometry%7Ccolor:0xeeeeee`+
+  `&style=feature:poi%7Celement:labels.text.fill%7Ccolor:0x757575`+
+  `&style=feature:poi.park%7Celement:geometry%7Ccolor:0xe5e5e5`+
+  `&style=feature:poi.park%7Celement:labels.text.fill%7Ccolor:0x9e9e9e`+
+  `&style=feature:road%7Cvisibility:off`+
+  `&style=feature:road%7Celement:geometry%7Ccolor:0xffffff`+
+  `&style=feature:road%7Celement:labels.icon%7Cvisibility:off`+
+  `&style=feature:road.arterial%7Celement:labels.text.fill%7Ccolor:0x757575`+
+  `&style=feature:road.highway%7Celement:geometry%7Ccolor:0xdadada`+
+  `&style=feature:road.highway%7Celement:labels.text.fill%7Ccolor:0x616161`+
+  `&style=feature:road.local%7Celement:labels.text.fill%7Ccolor:0x9e9e9e`+
+  `&style=feature:transit%7Cvisibility:off`+
+  `&style=feature:transit.line%7Celement:geometry%7Ccolor:0xe5e5e5`+
+  `&style=feature:transit.station%7Celement:geometry%7Ccolor:0xeeeeee`+
+  `&style=feature:water%7Celement:geometry%7Ccolor:0xc9c9c9`+
+  `&style=feature:water%7Celement:labels.text.fill%7Ccolor:0x9e9e9e`
+
+  try {
+    // const response = await axios.get(baseUrl, { params, responseType: 'arraybuffer' });
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+
+    if (response.status === 200) {
+      fs.writeFileSync(`${settings.maps_folder}/${filename}`, response.data);
+    } else {
+      logerror(`createMap - Error: ${response.status} - ${response.statusText}`);
+    }
+  } catch (error) {
+    logerror('createMap - Error fetching the map image:', error.message);
+  }
+}
+
+
 async function processPost(post) {
   const postdate = post.created.toString().replace("T", " ");
   const code = post.body.match(REGEX_PIN)[0];
@@ -154,7 +220,7 @@ async function processPost(post) {
   ) {
       // Check if post already pinned
       const id = (await dbworldmappin.query(
-      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
+      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? AND 1=0 LIMIT 1",
       [author, permlink]
       ))[0]?.id
 
@@ -162,18 +228,15 @@ async function processPost(post) {
         // new pin
         log(`new post @${post.author}/${post.permlink}`)
 
-        // const notification =
-        //   '<b>Congratulations, your post has been added to <a href="https://worldmappin.com">WorldMapPin</a>! 🎉</b><br/><br>'+
-        //   `Did you know you have <b><a href="https://worldmappin.com/@${pa}" target="_blank">your own profile map</a></b>?<br>` +
-        //   `And every <b><a href="https://worldmappin.com/p/${pp}" target="_blank">post has their own map</a></b> too!<br/><br/>` +
-        //   '<b>Want to have your post on the map too?</b><br/><ul><li>Go to <b><a href="https://worldmappin.com">WorldMapPin</a></b></li>'+
-        //   '<li>Click the <b>get code</b> button</li><li>Click on the map where your post should be (zoom in if needed)</li>'+
-        //   '<li>Copy and paste the generated code in your post (Hive only)</li><li>Congrats, your post is now on the map!</li></ul>'+
-        //   '<a href="https://peakd.com/@worldmappin" target="_blank"><img src="https://worldmappin.com/notify.png?1"/></a>';
-
+        const now = new Date().getTime()
+        const filename = `${now}.png`
+      
+        await createMap(lat, long, filename);
+    
         const notification =
           `<div class="text-justify">` +
-          `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br/><br>` +
+          `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br><br>`+
+          `<a href="https://worldmappin.com/p/${post.permlink}" target="_blank"><img src="https://worldmappin.com/maps/${filename}"/></a><br><br>` +
           `You can check out <b><a href="https://worldmappin.com/p/${post.permlink}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${post.author}" target="_blank">your own profile</a></b> on the map. ` +
           `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
           `</div>`
@@ -391,7 +454,22 @@ async function service() {
 
 async function test() {
     //await service()
-    // await serviceNotifications()
+    //await serviceNotifications()
+
+    // const params = {
+    //   author: 'mahmoudtech0',
+    //   permlink: 'can-artificial-intelligence-save-customer-service',
+    // }
+    // const post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
+    // await processPost(post)
+
+    // const lat = "43.50734", long = "16.43975"   // split
+    //const lat = "32.33617", long = "-117.05454" // rosarito
+    //const lat = "55.75586", long = "37.62030"   // moscow
+
+    // const now = new Date().getTime()
+    // const filename = `map.png`;                               // Output file name
+    // await createMap(lat,long, filename);
 
     service()
     setInterval(service, settings.interval * 1000)
