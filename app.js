@@ -12,7 +12,7 @@ const email = settings.email;
 const smtp = nodemailer.createTransport({
   host: email.transport.host,
   port: email.transport.port,
-  secure: true,
+  secure: false,
   ignoreTLS: true
 })
 
@@ -93,14 +93,17 @@ function getPostValue(post) {
 }
 
 async function createMap(lat, long, filename) {
-  const apiKey = settings.google_maps_api_key;
-  const apiUrl = 'https://maps.googleapis.com/maps/api/staticmap';
+  const apiKey = settings.google_maps_api_key
+  const apiUrl = 'https://maps.googleapis.com/maps/api/staticmap'
 
-  const zoom = '5';                                  // Zoom level (0-20)
-  const size = '600x200';                            // Image size in pixels (max 640x640 for free accounts)
-  const center = `${lat}, ${long}`;                  // Latitude and longitude of the map's center
+  const zoom = '5'                                   // Zoom level (0-20)
+  const size = '600x200'                             // Image size in pixels (max 640x640 for free accounts)
+  const center = `${lat}, ${long}`                   // Latitude and longitude of the map's center
   const iconUrl = 'https://i.imgur.com/xv1Gr1d.png'  // 48x48
-  const markers = `icon:${iconUrl}|${lat}, ${long}`; // Marker parameters
+  const markers = `icon:${iconUrl}|${lat}, ${long}`  // Marker parameters
+
+  const colorCountry = "0xffae3d"
+  const colorCity = "0xe2b179"
 
   // const params = {
   //   center: center,
@@ -119,8 +122,8 @@ async function createMap(lat, long, filename) {
   `&style=element:labels.text.fill%7Ccolor:0x616161`+
   `&style=element:labels.text.stroke%7Ccolor:0xf5f5f5`+
   `&style=feature:administrative%7Celement:geometry%7Cvisibility:off`+
-  `&style=feature:administrative.country%7Celement:labels.text%7Ccolor:0xffae3d%7Cvisibility:simplified%7Cweight:1`+
-  `&style=feature:administrative.locality%7Ccolor:0xc7c4bd%7Cvisibility:simplified`+
+  `&style=feature:administrative.country%7Celement:labels.text%7Ccolor:${colorCountry}%7Cvisibility:simplified%7Cweight:1`+
+  `&style=feature:administrative.locality%7Ccolor:${colorCity}%7Cvisibility:simplified`+
   `&style=feature:administrative.land_parcel%7Celement:labels.text.fill%7Ccolor:0xbdbdbd`+
   `&style=feature:administrative.neighborhood%7Cvisibility:off`+
   `&style=feature:poi%7Cvisibility:off`+
@@ -467,8 +470,8 @@ async function test() {
   // await processPost(post)
 
   // const lat = "43.50734", long = "16.43975"   // split
-  //const lat = "32.33617", long = "-117.05454" // rosarito
-  //const lat = "55.75586", long = "37.62030"   // moscow
+  // // const lat = "32.33617", long = "-117.05454" // rosarito
+  // // const lat = "55.75586", long = "37.62030"   // moscow
 
   // const now = new Date().getTime()
   // const filename = `map.png`;                               // Output file name
