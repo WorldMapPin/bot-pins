@@ -292,7 +292,7 @@ async function processVote(author, permlink, weight) {
   try {
     const reward = (await dbworldmappin.query(
       "SELECT postValue FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
-      [author.toString(), permlink.toString()]))[0]?.postValue
+      [author, permlink]))[0]?.postValue
 
     if (reward!=undefined && (reward < 0.02 || weight < 0)) {
       const post = await hiveClient.call("condenser_api","get_content",[author, permlink])
@@ -342,10 +342,10 @@ async function processOp(op) {
         await checkUnpinPost(params.author, params.permlink)
         break;
 
-      case "vote":
-          // logdebug(`vote ${params.author} - ${params.permlink}`)
-          await processVote(params.author, params.permlink, params.weight)
-          break;
+      // case "vote":
+      //     // logdebug(`vote ${params.author} - ${params.permlink}`)
+      //     await processVote(params.author, params.permlink, params.weight)
+      //     break;
       }
 	} catch(e) {
 		logerror(`processOp failed: ${e.message}`, JSON.stringify(op))
