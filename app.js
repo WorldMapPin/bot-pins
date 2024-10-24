@@ -311,10 +311,9 @@ async function checkUnpinPost(author, permlink) {
 
 }
 
-async function processOp(op) {
+async function processOp(type,params) {
   try {
-    const params = op[1]
-    switch(op[0]) {
+    switch(type) {
       case "comment":
         if(params.parent_author!="") return; // ignore comments
 
@@ -419,8 +418,15 @@ async function processBlock(block) {
     // Process ops
     for(const op of tx.operations) {
       //console.debug(`\t\top: ${state.last_block_tx_op} ${JSON.stringify(op)}`)
-      if(["comment","delete_comment"/*,"vote"*/].includes(op[0])) {
-        await processOp(op)
+      if(op.type!=undefined) {  // get_block_range format
+        op.type = op.type.replace('_operation','')
+        if(["comment","delete_comment"/*,"vote"*/].includes(op.type)) {
+          await processOp(op.type, op.value)
+        }
+      } else { // get_block format
+        if(["comment","delete_comment"/*,"vote"*/].includes(op[0])) {
+          await processOp(op[0],op[1])
+        }
       }
     }
   }
@@ -466,7 +472,13 @@ async function service() {
 }
 
 async function test() {
-  // await service()
+
+  // block_num = 90081227
+  // const call = { id: 1, jsonrpc: "2.0", method: "condenser_api.get_block", params:[block_num] }
+  // const block = (await axios.post(settings.hive_api, call)).data.result
+  // await processBlock(block)
+
+  await service()
   //await serviceNotifications()
 
   // const params = {
@@ -484,10 +496,10 @@ async function test() {
   // const filename = `map.png`;                               // Output file name
   // await createMap(lat,long, filename);
 
-  service()
-  setInterval(service, settings.interval * 1000)
-  serviceNotifications()
-  setInterval(serviceNotifications, settings.interval * 1000)
+  // service()
+  // setInterval(service, settings.interval * 1000)
+  // serviceNotifications()
+  // setInterval(serviceNotifications, settings.interval * 1000)
 }
 
 (async () => {
