@@ -10,9 +10,9 @@ const hiveClient = new Client(settings.hive_api);
 const nodemailer = require("nodemailer");
 const email = settings.email;
 const smtp = nodemailer.createTransport({
-  host: email.smtp,
-  port: email.port,
-  secure: false,
+  host: email.transport.host,
+  port: email.transport.port,
+  secure: true,
   ignoreTLS: true
 })
 
@@ -48,7 +48,7 @@ async function notify(subject, body="") {
       html: body
     })
   } catch(e) {
-    logerror(e)
+    logerror(e.message)
   }
 }
 
@@ -166,7 +166,6 @@ async function processPost(post) {
 
   const permlink = post.permlink;
   const author = post.author;
-  const postlink = "https://peakd.com" + post.url;
   const posttitle = post.title;
   const json_metadata = JSON.parse(post.json_metadata);
 
@@ -220,7 +219,7 @@ async function processPost(post) {
   ) {
       // Check if post already pinned
       const id = (await dbworldmappin.query(
-      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? AND 1=0 LIMIT 1",
+      "SELECT id FROM markerinfo WHERE username = ? AND postPermLink = ? LIMIT 1",
       [author, permlink]
       ))[0]?.id
 
@@ -230,9 +229,7 @@ async function processPost(post) {
 
         const now = new Date().getTime()
         const filename = `${now}.png`
-      
-        await createMap(lat, long, filename);
-    
+   
         const notification =
           `<div class="text-justify">` +
           `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br><br>`+
@@ -240,26 +237,32 @@ async function processPost(post) {
           `You can check out <b><a href="https://worldmappin.com/p/${post.permlink}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${post.author}" target="_blank">your own profile</a></b> on the map. ` +
           `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
           `</div>`
-      
-        await dbworldmappin.query(
-          `
-          START TRANSACTION;
 
-          INSERT INTO markerinfo (postLink, username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody, isCommented) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
-
-          INSERT INTO notifications (parent_author, parent_permlink, body, json_metadata) 
-          VALUES (?, ?, ?, ?);
-
-          COMMIT;
-          `,
-          [
-            // pin
-            postlink, author, posttitle, long, lat, descr, permlink, postdate, tags, post.net_votes, postvalue, postimg, post.body,
-            // notification
-            author, permlink, notification, "",
-          ]
-        )
+        try {
+          await createMap(lat, long, filename);
+          await dbworldmappin.query(
+            `
+            START TRANSACTION;
+  
+            INSERT INTO markerinfo (username, postTitle, longitude, lattitude, postDescription, postPermLink, postDate, tags, postUpvote, postValue, postImageLink, postBody, isCommented) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+  
+            INSERT INTO notifications (parent_author, parent_permlink, body, json_metadata) 
+            VALUES (?, ?, ?, ?);
+  
+            COMMIT;
+            `,
+            [
+              // pin
+              author, posttitle, long, lat, descr, permlink, postdate, tags, post.net_votes, postvalue, postimg, post.body,
+              // notification
+              author, permlink, notification, "",
+            ]
+          )
+        } catch(e) {
+          fs.unlink(`${settings.maps_folder}/${filename}`, (e) => { console.log(e.message) })
+          throw e
+        }
       } else {
         logdebug(`update post @${post.author}/${post.permlink}`)
         await dbworldmappin.query(
@@ -453,28 +456,28 @@ async function service() {
 }
 
 async function test() {
-    //await service()
-    //await serviceNotifications()
+  await service()
+  //await serviceNotifications()
 
-    // const params = {
-    //   author: 'mahmoudtech0',
-    //   permlink: 'can-artificial-intelligence-save-customer-service',
-    // }
-    // const post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
-    // await processPost(post)
+  // const params = {
+  //   author: 'mahmoudtech0',
+  //   permlink: 'can-artificial-intelligence-save-customer-service',
+  // }
+  // const post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
+  // await processPost(post)
 
-    // const lat = "43.50734", long = "16.43975"   // split
-    //const lat = "32.33617", long = "-117.05454" // rosarito
-    //const lat = "55.75586", long = "37.62030"   // moscow
+  // const lat = "43.50734", long = "16.43975"   // split
+  //const lat = "32.33617", long = "-117.05454" // rosarito
+  //const lat = "55.75586", long = "37.62030"   // moscow
 
-    // const now = new Date().getTime()
-    // const filename = `map.png`;                               // Output file name
-    // await createMap(lat,long, filename);
+  // const now = new Date().getTime()
+  // const filename = `map.png`;                               // Output file name
+  // await createMap(lat,long, filename);
 
-    service()
-    setInterval(service, settings.interval * 1000)
-    serviceNotifications()
-    setInterval(serviceNotifications, settings.interval * 1000)
+  // service()
+  // setInterval(service, settings.interval * 1000)
+  // serviceNotifications()
+  // setInterval(serviceNotifications, settings.interval * 1000)
 }
 
 (async () => {
