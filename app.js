@@ -17,7 +17,7 @@ const smtp = nodemailer.createTransport({
 })
 
 // Initialize global variables
-const bDebug = process.env.DEBUG==="true"
+const bDebug = process.env.DEBUG==="true" || settings.debug
 const msSecond = 1 * 1000
 const msMinute = 60 * msSecond
 const msHour = 60 * msMinute
@@ -33,6 +33,7 @@ const postingKey = PrivateKey.fromString(settings.posting);
 let bBusy = false
 let bBusyNotifications = false
 let bFirstBlock = true
+let block_num = 0
 
 async function wait(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
@@ -405,6 +406,28 @@ async function serviceNotifications() {
   }
 }
 
+async function processBlock(block) {
+  if (bDebug) {
+    logdebug(`block: ${block_num} (${block.timestamp}) txs: ${block.transactions.length}`)
+  } else if(bFirstBlock || block_num % 100 == 0) {
+    log(`processing block ${block_num} (${block.timestamp})`)
+  }
+  bFirstBlock = false
+  // Process txs
+  for(const tx of block.transactions) {
+    // console.debug(`\ttx: ${tx.transaction_num} - ops: ${tx.operations.length}`)
+    // Process ops
+    for(const op of tx.operations) {
+      //console.debug(`\t\top: ${state.last_block_tx_op} ${JSON.stringify(op)}`)
+      if(["comment","delete_comment"/*,"vote"*/].includes(op[0])) {
+        await processOp(op)
+      }
+    }
+  }
+  await dbworldmappin.query(`UPDATE params SET last_block = ?`,[block_num])
+  block_num++
+}
+
 async function service() {
   if(bBusy) {
 		// service is already running
@@ -413,39 +436,23 @@ async function service() {
   try {
     bBusy = true
 
-    const last_block = (await dbworldmappin.query("SELECT last_block FROM  params LIMIT 1"))[0].last_block
-    const state = { last_block: last_block, last_block_tx: 0, last_block_tx_op: 0 }
+    block_num = (await dbworldmappin.query("SELECT last_block FROM  params LIMIT 1"))[0].last_block + 1
 
-		// Process blocks
-		for await (const block of hiveClient.blockchain.getBlocks(state.last_block)) {
-			if (bDebug) {
-				logdebug(`block: ${state.last_block} (${block.timestamp}) txs: ${block.transactions.length}`)
-			} else if(bFirstBlock || state.last_block % 100 == 0) {
-				log(`processing block ${state.last_block} (${block.timestamp})`)
-			}
-			bFirstBlock = false
-			// Process txs
-			for(let itx=state.last_block_tx; itx < block.transactions.length; itx++) {
-				const tx = block.transactions[itx]
-				// console.debug(`\ttx: ${tx.transaction_num} - ops: ${tx.operations.length}`)
-				// Process ops
-				for(let iop=state.last_block_tx_op; iop < tx.operations.length; iop++) {
-					const op = tx.operations[iop]
-					//console.debug(`\t\top: ${state.last_block_tx_op} ${JSON.stringify(op)}`)
-					if(["comment","delete_comment","vote"].includes(op[0])) {
-						await processOp(op)
-					}
-					// op processed
-					state.last_block_tx_op += 1
-				}
-				// tx processed
-				state.last_block_tx_op = 0
-				state.last_block_tx += 1
-			}
-			// block processed
-			state.last_block_tx = 0
-			state.last_block += 1
-      await dbworldmappin.query(`UPDATE params SET last_block = ?`,[state.last_block])
+    // Check for massive sync
+    const dgp = await hiveClient.database.getDynamicGlobalProperties()
+    log(`Check massive - bn:${block_num} lib:${dgp.last_irreversible_block_num}`)
+    while(block_num < dgp.last_irreversible_block_num) {
+      const call = { id: 1, jsonrpc: "2.0", method: "block_api.get_block_range", params:{"starting_block_num": block_num, "count": 100} }
+      const blocks = (await axios.post(settings.hive_api, call)).data.result.blocks
+      for(const block of blocks) {
+        await processBlock(block)
+      }
+    }
+		// Stream blockchain
+    await wait(3 * msSecond)
+    log("Streaming blockchain")
+		for await (const block of hiveClient.blockchain.getBlocks(block_num)) {
+      await processBlock(block)
 		}
   } catch (e) {
     if(e.message.toLowerCase().includes("database lock")) {
@@ -459,7 +466,7 @@ async function service() {
 }
 
 async function test() {
-  await service()
+  // await service()
   //await serviceNotifications()
 
   // const params = {
@@ -477,10 +484,10 @@ async function test() {
   // const filename = `map.png`;                               // Output file name
   // await createMap(lat,long, filename);
 
-  // service()
-  // setInterval(service, settings.interval * 1000)
-  // serviceNotifications()
-  // setInterval(serviceNotifications, settings.interval * 1000)
+  service()
+  setInterval(service, settings.interval * 1000)
+  serviceNotifications()
+  setInterval(serviceNotifications, settings.interval * 1000)
 }
 
 (async () => {
