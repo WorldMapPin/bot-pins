@@ -213,7 +213,7 @@ async function processPost(post) {
   }
 
   const postvalue = getPostValue(post)
-  const tags = json_metadata.tags.toString().replaceAll(",",", ")
+  const tags = json_metadata.tags?.toString().replaceAll(",",", ")
 
   if (
     lat != 0 &&
@@ -348,7 +348,10 @@ async function processOp(type,params) {
       //     break;
       }
 	} catch(e) {
-		logerror(`processOp failed: ${e.message}`, JSON.stringify(op))
+    if(e.message=='Invalid parameters' && Object.values(e.jse_info).toString().replaceAll(',','').includes('deleted')) {
+      return
+    }
+		logerror(`processOp failed: ${e.message}`, `${type}\n${JSON.stringify(params)}`)
     throw e
 	}
 }
