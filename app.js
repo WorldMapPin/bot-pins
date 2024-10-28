@@ -307,8 +307,15 @@ async function processVote(author, permlink, weight) {
   }
 }
 
-async function checkUnpinPost(author, permlink) {
-
+async function deletePost(author, permlink) {
+  try {
+    await dbworldmappin.query(
+      "DELETE FROM markerinfo WHERE username = ? AND postPermLink = ?",
+      [author, permlink]
+    )
+  } catch (e) {
+		logerror(`deletePost failed: ${e.message}`, e.stack)
+  }
 }
 
 async function processOp(type,params) {
@@ -332,14 +339,14 @@ async function processOp(type,params) {
           }
           await processPost(post)
         } else {
-          // Check if post already pinned and need unpin
-          await checkUnpinPost(params.author, params.permlink)
+          // delete post if previouly pinned
+          await deletePost(params.author, params.permlink)
         }
         break;
 
       case "delete_comment":
         logdebug(`delete post ${params.author} - ${params.permlink}`)
-        await checkUnpinPost(params.author, params.permlink)
+        await deletePost(params.author, params.permlink)
         break;
 
       // case "vote":
@@ -349,6 +356,7 @@ async function processOp(type,params) {
       }
 	} catch(e) {
     if(e.message=='Invalid parameters' && Object.values(e.jse_info).toString().replaceAll(',','').includes('deleted')) {
+      // ignore case of post already deleted when doing massive sync
       return
     }
 		logerror(`processOp failed: ${e.message}`, `${type}\n${JSON.stringify(params)}`)
