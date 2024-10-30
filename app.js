@@ -31,7 +31,6 @@ const REGEX_PIN = /(!worldmappin|!pinmapple) -*[0-9]+\.*[0-9]* lat -*[0-9]+\.*[0
 const postingKey = PrivateKey.fromString(settings.posting);
 
 let bBusy = false
-let bBusyNotifications = false
 let bFirstBlock = true
 let block_num = 0
 
@@ -364,58 +363,6 @@ async function processOp(type,params) {
 	}
 }
 
-async function serviceNotifications() {
-  if(bBusyNotifications) {
-		// service is already running
-		return
-	}
-  try {
-    bBusyNotifications = true
-    const notifications = (await dbworldmappin.query("SELECT * FROM notifications"))
-    
-    if (notifications.length) {
-      for (const notification of notifications) {
-        const now = new Date();
-        const opComment = {
-          author: settings.account,
-          permlink: "wmp" + now.getTime().toString(),
-          title: "",
-          body: notification.body,
-          parent_author: notification.parent_author,
-          parent_permlink: notification.parent_permlink,
-          json_metadata: notification.json_metadata,
-        }
-        const opVote = {
-          voter: settings.account,
-          author: notification.parent_author,
-          permlink: notification.parent_permlink,
-          weight: settings.upvote_weight * 100
-        }  
-
-        try {
-          const { id } = await hiveClient.broadcast.comment(opComment, postingKey);
-          log(`Notification sent to @${notification.parent_author} (${id})`);
-        } catch(e) {
-          if (e.message.includes("not found")) {
-            await dbworldmappin.query("DELETE FROM markerinfo WHERE username = ? AND postPermlink = ?",[notification.parent_author, notification.parent_permlink]);
-          } else {
-            throw e
-          }
-        }
-        await dbworldmappin.query("DELETE FROM notifications WHERE id = ?",[notification.id]);
-        if(settings.upvote_comments) {
-          await hiveClient.broadcast.vote(opVote, postingKey)
-        }
-        await wait(3 * msSecond);
-      }
-    }
-  } catch (e) {
-    logerror(`serviceNotifications failed: ${e.message}`, e.stack)
-  } finally {
-    bBusyNotifications = false    
-  }
-}
-
 async function processBlock(block) {
   if (bDebug) {
     logdebug(`block: ${block_num} (${block.timestamp}) txs: ${block.transactions.length}`)
@@ -490,7 +437,6 @@ async function test() {
   // await processBlock(block)
 
   await service()
-  //await serviceNotifications()
 
   // const params = {
   //   author: 'mahmoudtech0',
@@ -509,8 +455,6 @@ async function test() {
 
   // service()
   // setInterval(service, settings.interval * 1000)
-  // serviceNotifications()
-  // setInterval(serviceNotifications, settings.interval * 1000)
 }
 
 (async () => {
@@ -526,8 +470,6 @@ async function test() {
       log(`API: ${settings.hive_api}`)
       service()
       setInterval(service, settings.interval * 1000)
-      serviceNotifications()
-      setInterval(serviceNotifications, settings.interval * 1000)
     }
   } catch(e) {
     console.error(e)
