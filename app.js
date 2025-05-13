@@ -69,13 +69,13 @@ function log(message) {
 
 function logerror(message, body="") {
   console.error(`${datetoISO(new Date())}- ${message}${body!="" ? " -> ":""}${body}`)
-  if(settings.notify?.error  && !skipNotify(message)) {
+  if (settings.notify?.error  && !skipNotify(message)) {
     notify(`[hive-worldmappin] ${message}`, body)
   }
 }
 
 function logdebug(message) {
-  if(bDebug || settings.debug) {
+  if (bDebug || settings.debug) {
     console.log(`${datetoISO(new Date())}- ${message}`)
   }
 }
@@ -230,8 +230,10 @@ async function processPost(post) {
         // new pin
         log(`new post @${post.author}/${post.permlink}`)
 
-        const now = new Date().getTime()
-        const filename = `${now}.png`
+        // const now = new Date().getTime()
+        // const filename = `${now}.png`
+        const created = (new Date(postdate).getTime())/1000
+        const filename = `${author}-${created}.png`
    
         const notification =
           `<div class="text-justify">` +
@@ -321,19 +323,19 @@ async function processOp(type,params) {
   try {
     switch(type) {
       case "comment":
-        if(params.parent_author!="") return; // ignore comments
+        if (params.parent_author!="") return; // ignore comments
 
         // logdebug(`process post ${params.author} - ${params.permlink}`)
         let post = undefined
 
-        if(params.body.startsWith("@@")) {
+        if (params.body.startsWith("@@")) {
           // existing comment update - retrieve full body from the blockchain
           post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
           params.body = post.body
         }
         if (params.body.match(REGEX_PIN)) {
           // load post if not yet loaded
-          if(undefined == post) {
+          if (undefined == post) {
             post = await hiveClient.call("condenser_api","get_content",[params.author, params.permlink])
           }
           await processPost(post)
@@ -354,7 +356,7 @@ async function processOp(type,params) {
       //     break;
       }
 	} catch(e) {
-    if(e.message=='Invalid parameters' && Object.values(e.jse_info).toString().replaceAll(',','').includes('deleted')) {
+    if (e.message=='Invalid parameters' && Object.values(e.jse_info).toString().replaceAll(',','').includes('deleted')) {
       // ignore case of post already deleted when doing massive sync
       return
     }
@@ -366,7 +368,7 @@ async function processOp(type,params) {
 async function processBlock(block) {
   if (bDebug) {
     logdebug(`block: ${block_num} (${block.timestamp}) txs: ${block.transactions.length}`)
-  } else if(bFirstBlock || block_num % 100 == 0) {
+  } else if (bFirstBlock || block_num % 100 == 0) {
     log(`processing block ${block_num} (${block.timestamp})`)
   }
   bFirstBlock = false
@@ -376,13 +378,13 @@ async function processBlock(block) {
     // Process ops
     for(const op of tx.operations) {
       //console.debug(`\t\top: ${state.last_block_tx_op} ${JSON.stringify(op)}`)
-      if(op.type!=undefined) {  // get_block_range format
+      if (op.type!=undefined) {  // get_block_range format
         op.type = op.type.replace('_operation','')
-        if(["comment","delete_comment"/*,"vote"*/].includes(op.type)) {
+        if (["comment","delete_comment"/*,"vote"*/].includes(op.type)) {
           await processOp(op.type, op.value)
         }
       } else { // get_block format
-        if(["comment","delete_comment"/*,"vote"*/].includes(op[0])) {
+        if (["comment","delete_comment"/*,"vote"*/].includes(op[0])) {
           await processOp(op[0],op[1])
         }
       }
@@ -393,7 +395,7 @@ async function processBlock(block) {
 }
 
 async function service() {
-  if(bBusy) {
+  if (bBusy) {
 		// service is already running
 		return
 	}
@@ -419,7 +421,7 @@ async function service() {
       await processBlock(block)
 		}
   } catch (e) {
-    if(e.message.toLowerCase().includes("database lock")) {
+    if (e.message.toLowerCase().includes("database lock")) {
       log(e.message)
     } else {
       logerror(e.message)
@@ -431,10 +433,10 @@ async function service() {
 
 async function test() {
 
-  // block_num = 90081227
-  // const call = { id: 1, jsonrpc: "2.0", method: "condenser_api.get_block", params:[block_num] }
-  // const block = (await axios.post(settings.hive_api, call)).data.result
-  // await processBlock(block)
+  block_num = 90081227
+  const call = { id: 1, jsonrpc: "2.0", method: "condenser_api.get_block", params:[block_num] }
+  const block = (await axios.post(settings.hive_api, call)).data.result
+  await processBlock(block)
 
   await service()
 
@@ -459,7 +461,7 @@ async function test() {
 
 (async () => {
   try {
-    if(bDebug) {
+    if (bDebug) {
       log("Debug started")
       log(`API: ${settings.hive_api}`)
       await test()
