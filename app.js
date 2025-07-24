@@ -239,7 +239,7 @@ async function processPost(post) {
           `<b>Congratulations, your post has been added to <a href="https://worldmappin.com">The WorldMapPin Map</a>! 🎉</b><br><br>`+
           `<a href="https://worldmappin.com/p/${post.permlink}" target="_blank"><img src="https://worldmappin.com/maps/${filename}"/></a><br><br>` +
           `You can check out <b><a href="https://worldmappin.com/p/${post.permlink}" target="_blank">this post</a></b> and <b><a href="https://worldmappin.com/@${post.author}" target="_blank">your own profile</a></b> on the map. ` +
-          `Be part of the <b><a href="https://peakd.com/c/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
+          `Be part of the <b><a href="/created/hive-163772">Worldmappin Community</a></b> and join <b><a href="https://discord.gg/EGtBvSM">our Discord Channel</a></b> to get in touch with other travelers, ask questions or just be updated on our latest features.` +
           `</div>`
 
         try {
